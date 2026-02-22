@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Environment variables (rahasia!)
+.env
+
+# Data files (jangan di-commit, bisa berisi data pribadi)
+subscribers.json
+feeds.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
