@@ -1,0 +1,28 @@
+{
+   "name": "Emitennews",
+   "pages": [
+      {
+         "url": "https://emitennews.com/category/emiten",
+         "label": "Emiten"
+      },
+      {
+         "url": "https://emitennews.com/category/makro",
+         "label": "Makro"
+      },
+      {
+         "url": "https://emitennews.com/category/regulator",
+         "label": "Regulator"
+      },
+      {
+         "url": "https://emitennews.com/category/nasional",
+         "label": "Nasional"
+      },
+      {
+         "url": "https://emitennews.com/category/riset",
+         "label": "Riset"
+      }
+   ],
+   "articleLinkSelector": "a[href*='/news/']",
+   "titleSelector": null,
+   "baseUrl": "https://emitennews.com"
+}
