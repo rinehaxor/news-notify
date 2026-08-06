@@ -6,11 +6,11 @@ const { rewriteWithKimi } = require('./ai');
 const { autoGenerateScrapeConfig } = require('./autoscrape');
 
 function isAdmin(chatId) {
-   if (!ADMIN_CHAT_ID) {
-      console.warn('⚠️  ADMIN_CHAT_ID belum diset di .env. Perintah admin ditolak demi keamanan.');
-      return false;
+   // Jika ADMIN_CHAT_ID belum diset atau masih default placeholder (123456789), izinkan semua user
+   if (!ADMIN_CHAT_ID || ADMIN_CHAT_ID === 123456789) {
+      return true;
    }
-   return chatId === ADMIN_CHAT_ID;
+   return String(chatId) === String(ADMIN_CHAT_ID);
 }
 
 function escapeMarkdown(text = '') {
@@ -442,6 +442,21 @@ function initBot(context) {
       const chatId = msg.chat.id;
       const text = msg.text.trim();
 
+      // Jika user mengirim URL secara langsung (atau dari reply)
+      if (text.startsWith('http://') || text.startsWith('https://')) {
+         if (!isAdmin(chatId)) {
+            await bot.sendMessage(chatId, `⛔ Fitur ini khusus Admin.\nChat ID kamu: <code>${chatId}</code>\n\nJika kamu Admin, set <code>ADMIN_CHAT_ID=${chatId}</code> di file <code>.env</code>.`, { parse_mode: 'HTML' });
+            return;
+         }
+
+         if (text.includes('/feed') || text.includes('.xml') || text.includes('/rss')) {
+            await handleAddFeed(msg, [null, text]);
+         } else {
+            await handleAutoScrape(msg, [null, text]);
+         }
+         return;
+      }
+
       // Tangani pesan balasan dari tombol ForceReply (Tambah RSS / Scrape tanpa mengetik command)
       if (msg.reply_to_message && isAdmin(chatId)) {
          const replyText = msg.reply_to_message.text || '';
@@ -464,7 +479,18 @@ function initBot(context) {
             await handleListFeeds(msg);
             break;
          case '➕ Tambah Feed':
-            await handleAddFeed(msg, null);
+            if (!isAdmin(chatId)) {
+               await bot.sendMessage(chatId, '⛔ Perintah ini khusus Admin.', getMainMenuKeyboard(chatId));
+               return;
+            }
+            await bot.sendMessage(
+               chatId,
+               '🌐 <b>Kirimkan URL Website / RSS Feed</b> yang ingin kamu tambahkan:\n\n' + '<i>Kamu cukup kirim/paste URL saja di sini, bot akan otomatis memprosesnya!</i>\n\n' + '<i>Contoh:</i> <code>https://www.kabarbursa.com/</code>',
+               {
+                  parse_mode: 'HTML',
+                  reply_markup: { force_reply: true },
+               },
+            );
             break;
          case '🧠 Toggle AI Rewrite':
             if (!isAdmin(chatId)) {
