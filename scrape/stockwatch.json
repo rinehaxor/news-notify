@@ -1,0 +1,25 @@
+{
+   "name": "Stockwatch",
+   "pages": [
+      {
+         "url": "https://stockwatch.id/market",
+         "label": "Market"
+      },
+      {
+         "url": "https://stockwatch.id/financial",
+         "label": "Financial"
+      },
+      {
+         "url": "https://stockwatch.id/economic",
+         "label": "Economic"
+      },
+      {
+         "url": "https://stockwatch.id/commodity",
+         "label": "Commodity"
+      }
+   ],
+   "articleLinkSelector": "a[href*='stockwatch.id/']",
+   "urlPattern": "^https://stockwatch\\.id/(?!register|market|financial|economic|commodity|national|global|lifestyle|syariah|ceo-talks|forgot-password|profile|posts|tag|about|contact|$).+$",
+   "titleSelector": null,
+   "baseUrl": "https://stockwatch.id"
+}
