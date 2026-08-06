@@ -31,6 +31,30 @@ function initBot(context) {
 
    const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
+   // Helper Reply Keyboards (Menu Tombol Bawah)
+   function getMainMenuKeyboard(chatId) {
+      const keyboard = [[{ text: '📊 Status Bot' }, { text: '🔍 List Sumber Berita' }]];
+
+      if (isAdmin(chatId)) {
+         keyboard.push([{ text: '🧠 Toggle AI Rewrite' }, { text: '⚡ Fetch Berita Sekarang' }]);
+      }
+
+      const isSubscribed = subscribers.has(chatId);
+      if (isSubscribed) {
+         keyboard.push([{ text: '🛑 Berhenti Langganan' }]);
+      } else {
+         keyboard.push([{ text: '🔔 Mulai Berlangganan' }]);
+      }
+
+      return {
+         reply_markup: {
+            keyboard: keyboard,
+            resize_keyboard: true,
+            persistent: true,
+         },
+      };
+   }
+
    // ── BROADCAST ───────────────────────────────────────────────────────────────
    async function broadcast(feedTitle, item) {
       if (subscribers.size === 0) return;
@@ -104,7 +128,10 @@ function initBot(context) {
       const name = msg.from.first_name || 'teman';
 
       if (subscribers.has(chatId)) {
-         await bot.sendMessage(chatId, `👋 Halo <b>${escapeHtml(name)}</b>! Kamu sudah terdaftar sebelumnya.\n\nKamu akan terus menerima notifikasi berita baru setiap <b>${INTERVAL_MINUTES} menit</b>.`, { parse_mode: 'HTML' });
+         await bot.sendMessage(chatId, `👋 Halo <b>${escapeHtml(name)}</b>! Kamu sudah terdaftar sebelumnya.\n\nKamu akan terus menerima notifikasi berita baru setiap <b>${INTERVAL_MINUTES} menit</b>.`, {
+            parse_mode: 'HTML',
+            ...getMainMenuKeyboard(chatId),
+         });
          return;
       }
 
@@ -119,8 +146,8 @@ function initBot(context) {
          `👋 Halo <b>${escapeHtml(name)}</b>! Selamat datang!\n\n` +
             `Kamu berhasil subscribe notifikasi berita.\n` +
             `Memantau <b>${totalSources}</b> sumber berita setiap <b>${INTERVAL_MINUTES} menit</b>.\n\n` +
-            `Ketik /stop untuk berhenti berlangganan.`,
-         { parse_mode: 'HTML' },
+            `Gunakan menu tombol di bawah untuk navigasi cepat! 📱`,
+         { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) },
       );
    });
 
@@ -129,7 +156,7 @@ function initBot(context) {
       const name = msg.from.first_name || 'teman';
 
       if (!subscribers.has(chatId)) {
-         await bot.sendMessage(chatId, 'Kamu belum terdaftar. Ketik /start untuk mulai berlangganan.');
+         await bot.sendMessage(chatId, 'Kamu belum terdaftar. Ketik /start untuk mulai berlangganan.', getMainMenuKeyboard(chatId));
          return;
       }
 
@@ -137,7 +164,7 @@ function initBot(context) {
       saveSubscribers(subscribers);
       console.log(`❌ Unsubscribe: ${chatId} (${name}) — sisa: ${subscribers.size}`);
 
-      await bot.sendMessage(chatId, `😢 Kamu sudah berhenti berlangganan.\nKetik /start kapan saja untuk berlangganan lagi.`);
+      await bot.sendMessage(chatId, `😢 Kamu sudah berhenti berlangganan.\nKetik /start kapan saja untuk berlangganan lagi.`, getMainMenuKeyboard(chatId));
    });
 
    bot.onText(/\/status/, async (msg) => {
@@ -153,23 +180,27 @@ function initBot(context) {
             `⏱ Interval: setiap <b>${INTERVAL_MINUTES} menit</b>\n` +
             `📰 Total artikel dicatat: <b>${seen.size}</b>\n` +
             `🧠 Rewrite AI: <b>${settings.rewriteEnabled ? '✅ ON' : '❌ OFF'}</b>`,
-         { parse_mode: 'HTML' },
+         { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) },
       );
    });
 
    bot.onText(/\/listfeeds/, async (msg) => {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
-         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini atau ADMIN_CHAT_ID belum dikonfigurasi.');
+         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini atau ADMIN_CHAT_ID belum dikonfigurasi.', getMainMenuKeyboard(chatId));
          return;
       }
 
       const scrapeConfigs = loadScrapeConfigs();
       const lines = [];
+      const inlineButtons = [];
 
       if (activeFeeds.length > 0) {
          lines.push(`📡 <b>RSS Feed (${activeFeeds.length}):</b>`);
-         activeFeeds.forEach((url, i) => lines.push(`  ${i + 1}. ${escapeHtml(url)}`));
+         activeFeeds.forEach((url, i) => {
+            lines.push(`  ${i + 1}. ${escapeHtml(url)}`);
+            inlineButtons.push([{ text: `🗑️ Hapus RSS ${i + 1}`, callback_data: `del_rss_${i}` }]);
+         });
       }
 
       if (scrapeConfigs.length > 0) {
@@ -182,38 +213,73 @@ function initBot(context) {
       }
 
       if (lines.length === 0) {
-         await bot.sendMessage(chatId, '📭 Belum ada feed atau scrape config yang terdaftar.');
+         await bot.sendMessage(chatId, '📭 Belum ada feed atau scrape config yang terdaftar.', getMainMenuKeyboard(chatId));
          return;
       }
 
-      await bot.sendMessage(chatId, lines.join('\n'), { parse_mode: 'HTML' });
+      const options = {
+         parse_mode: 'HTML',
+         ...getMainMenuKeyboard(chatId),
+      };
+
+      if (inlineButtons.length > 0) {
+         options.reply_markup = {
+            ...options.reply_markup,
+            inline_keyboard: inlineButtons,
+         };
+      }
+
+      await bot.sendMessage(chatId, lines.join('\n'), options);
+   });
+
+   // Handler Callback Query untuk Tombol Inline (Hapus Feed)
+   bot.on('callback_query', async (query) => {
+      const chatId = query.message.chat.id;
+      const data = query.data;
+
+      if (!isAdmin(chatId)) {
+         await bot.answerCallbackQuery(query.id, { text: '⛔ Akses ditolak.', show_alert: true });
+         return;
+      }
+
+      if (data.startsWith('del_rss_')) {
+         const index = parseInt(data.replace('del_rss_', ''), 10);
+         if (activeFeeds[index]) {
+            const removedUrl = activeFeeds.splice(index, 1)[0];
+            saveFeeds(activeFeeds);
+            await bot.answerCallbackQuery(query.id, { text: '✅ RSS feed berhasil dihapus!' });
+            await bot.sendMessage(chatId, `🗑️ RSS feed dihapus:\n<code>${escapeHtml(removedUrl)}</code>`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
+         } else {
+            await bot.answerCallbackQuery(query.id, { text: '❌ Feed tidak ditemukan atau sudah dihapus.' });
+         }
+      }
    });
 
    bot.onText(/\/addfeed (.+)/, async (msg, match) => {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
-         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.');
+         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
          return;
       }
       const url = match[1].trim();
       if (!url.startsWith('http')) {
-         await bot.sendMessage(chatId, '❌ URL tidak valid. Pastikan dimulai dengan http:// atau https://');
+         await bot.sendMessage(chatId, '❌ URL tidak valid. Pastikan dimulai dengan http:// atau https://', getMainMenuKeyboard(chatId));
          return;
       }
       if (activeFeeds.includes(url)) {
-         await bot.sendMessage(chatId, '⚠️ Feed ini sudah ada dalam daftar.');
+         await bot.sendMessage(chatId, '⚠️ Feed ini sudah ada dalam daftar.', getMainMenuKeyboard(chatId));
          return;
       }
       activeFeeds.push(url);
       saveFeeds(activeFeeds);
       console.log(`➕ Feed ditambahkan: ${url}`);
-      await bot.sendMessage(chatId, `✅ RSS Feed berhasil ditambahkan!\n\n🔗 ${escapeHtml(url)}\n\nTotal RSS feed sekarang: ${activeFeeds.length}`, { parse_mode: 'HTML' });
+      await bot.sendMessage(chatId, `✅ RSS Feed berhasil ditambahkan!\n\n🔗 ${escapeHtml(url)}\n\nTotal RSS feed sekarang: ${activeFeeds.length}`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
    });
 
    bot.onText(/\/autoscrape (.+)/, async (msg, match) => {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
-         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.');
+         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
          return;
       }
       const rawInput = match[1].trim();
@@ -233,36 +299,36 @@ function initBot(context) {
                `🌐 Target URL: ${escapeHtml(result.config.pages[0].url)}\n` +
                `📊 Link Terdeteksi: <b>${result.totalLinksFound}</b> link\n\n` +
                `Bot sekarang otomatis memantau website ini tanpa perlu restart! 🚀`,
-            { parse_mode: 'HTML' },
+            { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) },
          );
       } catch (err) {
          console.error('⚠️ Gagal auto scrape:', err.message);
-         await bot.sendMessage(chatId, `❌ Gagal membuat scraper otomatis: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
+         await bot.sendMessage(chatId, `❌ Gagal membuat scraper otomatis: ${escapeHtml(err.message)}`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
       }
    });
 
    bot.onText(/\/removefeed (.+)/, async (msg, match) => {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
-         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.');
+         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
          return;
       }
       const url = match[1].trim();
       const index = activeFeeds.indexOf(url);
       if (index === -1) {
-         await bot.sendMessage(chatId, `❌ Feed tidak ditemukan.\n\nKetik /listfeeds untuk melihat feed aktif.`);
+         await bot.sendMessage(chatId, `❌ Feed tidak ditemukan.\n\nKetik /listfeeds untuk melihat feed aktif.`, getMainMenuKeyboard(chatId));
          return;
       }
       activeFeeds.splice(index, 1);
       saveFeeds(activeFeeds);
       console.log(`➖ Feed dihapus: ${url}`);
-      await bot.sendMessage(chatId, `🗑 RSS Feed berhasil dihapus!\n\nSisa RSS feed: ${activeFeeds.length}`);
+      await bot.sendMessage(chatId, `🗑 RSS Feed berhasil dihapus!\n\nSisa RSS feed: ${activeFeeds.length}`, getMainMenuKeyboard(chatId));
    });
 
    bot.onText(/\/rewrite(?:\s+(on|off))?/, async (msg, match) => {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
-         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.');
+         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
          return;
       }
 
@@ -274,38 +340,78 @@ function initBot(context) {
          await bot.sendMessage(
             chatId,
             `🧠 *Rewrite Artikel \\(Kimi AI\\)*\n\n` + `Status: ${status}\n` + `Model: \`${escapeMarkdown(KIMI_MODEL)}\`\n` + `API: ${apiStatus}\n\n` + `Gunakan:\n` + `\`/rewrite on\` \u2014 aktifkan\n` + `\`/rewrite off\` \u2014 matikan`,
-            { parse_mode: 'MarkdownV2' },
+            { parse_mode: 'MarkdownV2', ...getMainMenuKeyboard(chatId) },
          );
          return;
       }
 
       if (action === 'on') {
          if (!KIMI_API_KEY) {
-            await bot.sendMessage(chatId, '⚠️ KIMI_API_KEY belum diset di file .env. Isi dulu lalu restart bot.');
+            await bot.sendMessage(chatId, '⚠️ KIMI_API_KEY belum diset di file .env. Isi dulu lalu restart bot.', getMainMenuKeyboard(chatId));
             return;
          }
          settings.rewriteEnabled = true;
          saveSettings(settings);
          console.log('🧠 Rewrite Kimi AI: ON');
-         await bot.sendMessage(chatId, '✅ Rewrite artikel dengan Kimi AI <b>diaktifkan</b>.', { parse_mode: 'HTML' });
+         await bot.sendMessage(chatId, '✅ Rewrite artikel dengan Kimi AI <b>diaktifkan</b>.', { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
       } else {
          settings.rewriteEnabled = false;
          saveSettings(settings);
          console.log('🧠 Rewrite Kimi AI: OFF');
-         await bot.sendMessage(chatId, '❌ Rewrite artikel dengan Kimi AI <b>dimatikan</b>.', { parse_mode: 'HTML' });
+         await bot.sendMessage(chatId, '❌ Rewrite artikel dengan Kimi AI <b>dimatikan</b>.', { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
       }
    });
 
    bot.onText(/\/fetchnow/, async (msg) => {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
-         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.');
+         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
          return;
       }
       await bot.sendMessage(chatId, '🔍 Mengecek semua feed & scrape sekarang...');
       console.log(`[${new Date().toLocaleString('id-ID')}] 🔍 Manual fetch oleh admin ${chatId}`);
       await checkAllFeedsFn();
-      await bot.sendMessage(chatId, '✅ Pengecekan selesai. Notifikasi dikirim jika ada artikel baru.');
+      await bot.sendMessage(chatId, '✅ Pengecekan selesai. Notifikasi dikirim jika ada artikel baru.', getMainMenuKeyboard(chatId));
+   });
+
+   // ── LISTENER TOMBOL REPLIES (TEXT BUTTONS) ──────────────────────────────────
+   bot.on('message', async (msg) => {
+      if (!msg.text || msg.text.startsWith('/')) return;
+      const chatId = msg.chat.id;
+      const text = msg.text.trim();
+
+      switch (text) {
+         case '📊 Status Bot':
+            bot.emit('text', { ...msg, text: '/status' });
+            break;
+         case '🔍 List Sumber Berita':
+            bot.emit('text', { ...msg, text: '/listfeeds' });
+            break;
+         case '🧠 Toggle AI Rewrite':
+            if (!isAdmin(chatId)) {
+               await bot.sendMessage(chatId, '⛔ Perintah ini khusus Admin.', getMainMenuKeyboard(chatId));
+               return;
+            }
+            // Toggle status
+            const newStatus = !settings.rewriteEnabled;
+            if (newStatus && !KIMI_API_KEY) {
+               await bot.sendMessage(chatId, '⚠️ KIMI_API_KEY belum diset di .env', getMainMenuKeyboard(chatId));
+               return;
+            }
+            settings.rewriteEnabled = newStatus;
+            saveSettings(settings);
+            await bot.sendMessage(chatId, `🧠 Rewrite AI sekarang <b>${newStatus ? '✅ AKTIF (ON)' : '❌ NONAKTIF (OFF)'}</b>`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
+            break;
+         case '⚡ Fetch Berita Sekarang':
+            bot.emit('text', { ...msg, text: '/fetchnow' });
+            break;
+         case '🔔 Mulai Berlangganan':
+            bot.emit('text', { ...msg, text: '/start' });
+            break;
+         case '🛑 Berhenti Langganan':
+            bot.emit('text', { ...msg, text: '/stop' });
+            break;
+      }
    });
 
    return { bot, broadcast };
