@@ -123,7 +123,7 @@ function initBot(context) {
 
    // ── COMMAND HANDLERS ────────────────────────────────────────────────────────
 
-   bot.onText(/\/start/, async (msg) => {
+   async function handleStart(msg) {
       const chatId = msg.chat.id;
       const name = msg.from.first_name || 'teman';
 
@@ -149,9 +149,9 @@ function initBot(context) {
             `Gunakan menu tombol di bawah untuk navigasi cepat! 📱`,
          { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) },
       );
-   });
+   }
 
-   bot.onText(/\/stop/, async (msg) => {
+   async function handleStop(msg) {
       const chatId = msg.chat.id;
       const name = msg.from.first_name || 'teman';
 
@@ -165,9 +165,9 @@ function initBot(context) {
       console.log(`❌ Unsubscribe: ${chatId} (${name}) — sisa: ${subscribers.size}`);
 
       await bot.sendMessage(chatId, `😢 Kamu sudah berhenti berlangganan.\nKetik /start kapan saja untuk berlangganan lagi.`, getMainMenuKeyboard(chatId));
-   });
+   }
 
-   bot.onText(/\/status/, async (msg) => {
+   async function handleStatus(msg) {
       const chatId = msg.chat.id;
       const scrapeConfigs = loadScrapeConfigs();
       const totalScrapePages = scrapeConfigs.reduce((sum, c) => sum + c.pages.length, 0);
@@ -182,9 +182,9 @@ function initBot(context) {
             `🧠 Rewrite AI: <b>${settings.rewriteEnabled ? '✅ ON' : '❌ OFF'}</b>`,
          { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) },
       );
-   });
+   }
 
-   bot.onText(/\/listfeeds/, async (msg) => {
+   async function handleListFeeds(msg) {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
          await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini atau ADMIN_CHAT_ID belum dikonfigurasi.', getMainMenuKeyboard(chatId));
@@ -230,7 +230,24 @@ function initBot(context) {
       }
 
       await bot.sendMessage(chatId, lines.join('\n'), options);
-   });
+   }
+
+   async function handleFetchNow(msg) {
+      const chatId = msg.chat.id;
+      if (!isAdmin(chatId)) {
+         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
+         return;
+      }
+      await bot.sendMessage(chatId, '🔍 Mengecek semua feed & scrape sekarang...');
+      console.log(`[${new Date().toLocaleString('id-ID')}] 🔍 Manual fetch oleh admin ${chatId}`);
+      await checkAllFeedsFn();
+      await bot.sendMessage(chatId, '✅ Pengecekan selesai. Notifikasi dikirim jika ada artikel baru.', getMainMenuKeyboard(chatId));
+   }
+
+   bot.onText(/\/start/, handleStart);
+   bot.onText(/\/stop/, handleStop);
+   bot.onText(/\/status/, handleStatus);
+   bot.onText(/\/listfeeds/, handleListFeeds);
 
    // Handler Callback Query untuk Tombol Inline (Hapus Feed)
    bot.on('callback_query', async (query) => {
@@ -362,17 +379,7 @@ function initBot(context) {
       }
    });
 
-   bot.onText(/\/fetchnow/, async (msg) => {
-      const chatId = msg.chat.id;
-      if (!isAdmin(chatId)) {
-         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
-         return;
-      }
-      await bot.sendMessage(chatId, '🔍 Mengecek semua feed & scrape sekarang...');
-      console.log(`[${new Date().toLocaleString('id-ID')}] 🔍 Manual fetch oleh admin ${chatId}`);
-      await checkAllFeedsFn();
-      await bot.sendMessage(chatId, '✅ Pengecekan selesai. Notifikasi dikirim jika ada artikel baru.', getMainMenuKeyboard(chatId));
-   });
+   bot.onText(/\/fetchnow/, handleFetchNow);
 
    // ── LISTENER TOMBOL REPLIES (TEXT BUTTONS) ──────────────────────────────────
    bot.on('message', async (msg) => {
@@ -382,10 +389,10 @@ function initBot(context) {
 
       switch (text) {
          case '📊 Status Bot':
-            bot.emit('text', { ...msg, text: '/status' });
+            await handleStatus(msg);
             break;
          case '🔍 List Sumber Berita':
-            bot.emit('text', { ...msg, text: '/listfeeds' });
+            await handleListFeeds(msg);
             break;
          case '🧠 Toggle AI Rewrite':
             if (!isAdmin(chatId)) {
@@ -403,13 +410,13 @@ function initBot(context) {
             await bot.sendMessage(chatId, `🧠 Rewrite AI sekarang <b>${newStatus ? '✅ AKTIF (ON)' : '❌ NONAKTIF (OFF)'}</b>`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
             break;
          case '⚡ Fetch Berita Sekarang':
-            bot.emit('text', { ...msg, text: '/fetchnow' });
+            await handleFetchNow(msg);
             break;
          case '🔔 Mulai Berlangganan':
-            bot.emit('text', { ...msg, text: '/start' });
+            await handleStart(msg);
             break;
          case '🛑 Berhenti Langganan':
-            bot.emit('text', { ...msg, text: '/stop' });
+            await handleStop(msg);
             break;
       }
    });
