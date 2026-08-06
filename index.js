@@ -30,7 +30,8 @@ async function checkAllFeeds() {
       await checkFeed(url, seen, broadcastFn);
    }
 
-   for (const config of scrapeConfigs) {
+   const currentScrapeConfigs = loadScrapeConfigs();
+   for (const config of currentScrapeConfigs) {
       for (const page of config.pages) {
          await checkScrapePage(config, page, seen, broadcastFn);
       }

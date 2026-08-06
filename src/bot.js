@@ -36,7 +36,8 @@ function initBot(context) {
       const keyboard = [[{ text: '📊 Status Bot' }, { text: '🔍 List Sumber Berita' }]];
 
       if (isAdmin(chatId)) {
-         keyboard.push([{ text: '🧠 Toggle AI Rewrite' }, { text: '⚡ Fetch Berita Sekarang' }]);
+         keyboard.push([{ text: '➕ Tambah Feed' }, { text: '🧠 Toggle AI Rewrite' }]);
+         keyboard.push([{ text: '⚡ Fetch Berita Sekarang' }]);
       }
 
       const isSubscribed = subscribers.has(chatId);
@@ -184,6 +185,41 @@ function initBot(context) {
       );
    }
 
+   async function handleAddFeed(msg, match) {
+      const chatId = msg ? msg.chat.id : ADMIN_CHAT_ID;
+      if (!isAdmin(chatId)) {
+         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
+         return;
+      }
+      const url = match && match[1] ? match[1].trim() : '';
+      if (!url) {
+         await bot.sendMessage(
+            chatId,
+            '➕ <b>Panduan Menambah Sumber Berita:</b>\n\n' +
+               '<b>1. Tambah RSS Feed:</b>\n' +
+               'Ketik: <code>/addfeed <URL_RSS></code>\n' +
+               '<i>Contoh:</i> <code>/addfeed https://sumberberita.com/feed</code>\n\n' +
+               '<b>2. Tambah Web Scraper (Otomatis AI/Scraper):</b>\n' +
+               'Ketik: <code>/autoscrape <URL_WEBSITE> [NAMA_MEDIA]</code>\n' +
+               '<i>Contoh:</i> <code>/autoscrape https://bisnis.com BisnisCom</code>',
+            { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) },
+         );
+         return;
+      }
+      if (!url.startsWith('http')) {
+         await bot.sendMessage(chatId, '❌ URL tidak valid. Pastikan dimulai dengan http:// atau https://', getMainMenuKeyboard(chatId));
+         return;
+      }
+      if (activeFeeds.includes(url)) {
+         await bot.sendMessage(chatId, '⚠️ Feed ini sudah ada dalam daftar.', getMainMenuKeyboard(chatId));
+         return;
+      }
+      activeFeeds.push(url);
+      saveFeeds(activeFeeds);
+      console.log(`➕ Feed ditambahkan: ${url}`);
+      await bot.sendMessage(chatId, `✅ RSS Feed berhasil ditambahkan!\n\n🔗 ${escapeHtml(url)}\n\nTotal RSS feed sekarang: ${activeFeeds.length}`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
+   }
+
    async function handleListFeeds(msg) {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
@@ -213,22 +249,21 @@ function initBot(context) {
          });
       }
 
+      inlineButtons.push([
+         { text: '📡 + Tambah RSS', callback_data: 'add_rss' },
+         { text: '🔍 + Auto Scrape Web', callback_data: 'add_scrape' },
+      ]);
+
       if (lines.length === 0) {
-         await bot.sendMessage(chatId, '📭 Belum ada feed atau scrape config yang terdaftar.', getMainMenuKeyboard(chatId));
-         return;
+         lines.push('📭 Belum ada feed atau scrape config yang terdaftar.');
       }
 
       const options = {
          parse_mode: 'HTML',
-         ...getMainMenuKeyboard(chatId),
-      };
-
-      if (inlineButtons.length > 0) {
-         options.reply_markup = {
-            ...options.reply_markup,
+         reply_markup: {
             inline_keyboard: inlineButtons,
-         };
-      }
+         },
+      };
 
       await bot.sendMessage(chatId, lines.join('\n'), options);
    }
@@ -249,8 +284,9 @@ function initBot(context) {
    bot.onText(/\/stop/, handleStop);
    bot.onText(/\/status/, handleStatus);
    bot.onText(/\/listfeeds/, handleListFeeds);
+   bot.onText(/\/addfeed(?:\s+(.+))?/, handleAddFeed);
 
-   // Handler Callback Query untuk Tombol Inline (Hapus Feed / Scraper File)
+   // Handler Callback Query untuk Tombol Inline (Hapus Feed / Scraper File / Tambah Feed)
    bot.on('callback_query', async (query) => {
       const chatId = query.message.chat.id;
       const data = query.data;
@@ -260,7 +296,22 @@ function initBot(context) {
          return;
       }
 
-      if (data.startsWith('del_rss_')) {
+      if (data === 'add_rss') {
+         await bot.answerCallbackQuery(query.id);
+         await bot.sendMessage(chatId, '📡 <b>Kirimkan URL RSS Feed</b> yang mau ditambahkan:\n\n<i>Contoh:</i> <code>https://sumberberita.com/feed</code>', {
+            parse_mode: 'HTML',
+            reply_markup: { force_reply: true },
+         });
+      } else if (data === 'add_scrape') {
+         await bot.answerCallbackQuery(query.id);
+         await bot.sendMessage(chatId, '🔍 <b>Kirimkan URL Website</b> yang mau discrape otomatis oleh AI:\n\n<i>Contoh:</i> <code>https://bisnis.com</code>', {
+            parse_mode: 'HTML',
+            reply_markup: { force_reply: true },
+         });
+      } else if (data === 'add_feed_prompt') {
+         await bot.answerCallbackQuery(query.id);
+         await handleAddFeed(query.message, null);
+      } else if (data.startsWith('del_rss_')) {
          const index = parseInt(data.replace('del_rss_', ''), 10);
          if (activeFeeds[index]) {
             const removedUrl = activeFeeds.splice(index, 1)[0];
@@ -289,27 +340,6 @@ function initBot(context) {
             await bot.answerCallbackQuery(query.id, { text: '❌ File config tidak ditemukan atau sudah dihapus.' });
          }
       }
-   });
-
-   bot.onText(/\/addfeed (.+)/, async (msg, match) => {
-      const chatId = msg.chat.id;
-      if (!isAdmin(chatId)) {
-         await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
-         return;
-      }
-      const url = match[1].trim();
-      if (!url.startsWith('http')) {
-         await bot.sendMessage(chatId, '❌ URL tidak valid. Pastikan dimulai dengan http:// atau https://', getMainMenuKeyboard(chatId));
-         return;
-      }
-      if (activeFeeds.includes(url)) {
-         await bot.sendMessage(chatId, '⚠️ Feed ini sudah ada dalam daftar.', getMainMenuKeyboard(chatId));
-         return;
-      }
-      activeFeeds.push(url);
-      saveFeeds(activeFeeds);
-      console.log(`➕ Feed ditambahkan: ${url}`);
-      await bot.sendMessage(chatId, `✅ RSS Feed berhasil ditambahkan!\n\n🔗 ${escapeHtml(url)}\n\nTotal RSS feed sekarang: ${activeFeeds.length}`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
    });
 
    async function handleAutoScrape(msg, match) {
@@ -406,11 +436,25 @@ function initBot(context) {
 
    bot.onText(/\/fetchnow/, handleFetchNow);
 
-   // ── LISTENER TOMBOL REPLIES (TEXT BUTTONS) ──────────────────────────────────
+   // ── LISTENER TOMBOL REPLIES (TEXT BUTTONS) & FORCE REPLY ────────────────────
    bot.on('message', async (msg) => {
-      if (!msg.text || msg.text.startsWith('/')) return;
+      if (!msg.text) return;
       const chatId = msg.chat.id;
       const text = msg.text.trim();
+
+      // Tangani pesan balasan dari tombol ForceReply (Tambah RSS / Scrape tanpa mengetik command)
+      if (msg.reply_to_message && isAdmin(chatId)) {
+         const replyText = msg.reply_to_message.text || '';
+         if (replyText.includes('URL RSS Feed')) {
+            await handleAddFeed(msg, [null, text]);
+            return;
+         } else if (replyText.includes('URL Website')) {
+            await handleAutoScrape(msg, [null, text]);
+            return;
+         }
+      }
+
+      if (msg.text.startsWith('/')) return;
 
       switch (text) {
          case '📊 Status Bot':
@@ -418,6 +462,9 @@ function initBot(context) {
             break;
          case '🔍 List Sumber Berita':
             await handleListFeeds(msg);
+            break;
+         case '➕ Tambah Feed':
+            await handleAddFeed(msg, null);
             break;
          case '🧠 Toggle AI Rewrite':
             if (!isAdmin(chatId)) {
