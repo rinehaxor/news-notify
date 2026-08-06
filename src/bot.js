@@ -209,6 +209,7 @@ function initBot(context) {
          scrapeConfigs.forEach((cfg, i) => {
             lines.push(`  ${i + 1}. <b>${escapeHtml(cfg.name)}</b> (${escapeHtml(cfg._file)})`);
             cfg.pages.forEach((p) => lines.push(`     - ${escapeHtml(p.label)}: ${escapeHtml(p.url)}`));
+            inlineButtons.push([{ text: `🗑️ Hapus Scraper: ${cfg.name}`, callback_data: `del_scrape_${cfg._file}` }]);
          });
       }
 
@@ -249,7 +250,7 @@ function initBot(context) {
    bot.onText(/\/status/, handleStatus);
    bot.onText(/\/listfeeds/, handleListFeeds);
 
-   // Handler Callback Query untuk Tombol Inline (Hapus Feed)
+   // Handler Callback Query untuk Tombol Inline (Hapus Feed / Scraper File)
    bot.on('callback_query', async (query) => {
       const chatId = query.message.chat.id;
       const data = query.data;
@@ -268,6 +269,24 @@ function initBot(context) {
             await bot.sendMessage(chatId, `🗑️ RSS feed dihapus:\n<code>${escapeHtml(removedUrl)}</code>`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
          } else {
             await bot.answerCallbackQuery(query.id, { text: '❌ Feed tidak ditemukan atau sudah dihapus.' });
+         }
+      } else if (data.startsWith('del_scrape_')) {
+         const fileName = data.replace('del_scrape_', '');
+         const fs = require('fs');
+         const path = require('path');
+         const { FILES } = require('./config');
+         const filePath = path.join(FILES.SCRAPE_DIR, fileName);
+
+         if (fs.existsSync(filePath)) {
+            try {
+               fs.unlinkSync(filePath);
+               await bot.answerCallbackQuery(query.id, { text: '✅ Config Scraper berhasil dihapus!' });
+               await bot.sendMessage(chatId, `🗑️ Config scraper <code>${escapeHtml(fileName)}</code> telah dihapus!`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
+            } catch (err) {
+               await bot.answerCallbackQuery(query.id, { text: '❌ Gagal menghapus file.' });
+            }
+         } else {
+            await bot.answerCallbackQuery(query.id, { text: '❌ File config tidak ditemukan atau sudah dihapus.' });
          }
       }
    });
@@ -293,13 +312,17 @@ function initBot(context) {
       await bot.sendMessage(chatId, `✅ RSS Feed berhasil ditambahkan!\n\n🔗 ${escapeHtml(url)}\n\nTotal RSS feed sekarang: ${activeFeeds.length}`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
    });
 
-   bot.onText(/\/autoscrape (.+)/, async (msg, match) => {
+   async function handleAutoScrape(msg, match) {
       const chatId = msg.chat.id;
       if (!isAdmin(chatId)) {
          await bot.sendMessage(chatId, '⛔ Kamu tidak punya akses ke command ini.', getMainMenuKeyboard(chatId));
          return;
       }
-      const rawInput = match[1].trim();
+      const rawInput = match ? match[1].trim() : '';
+      if (!rawInput) {
+         await bot.sendMessage(chatId, '⚠️ Format salah. Gunakan:\n`/autoscrape <URL_WEBSITE> [NAMA_MEDIA]`', { parse_mode: 'Markdown', ...getMainMenuKeyboard(chatId) });
+         return;
+      }
       const parts = rawInput.split(' ');
       const targetUrl = parts[0];
       const customName = parts.slice(1).join(' ') || null;
@@ -322,7 +345,9 @@ function initBot(context) {
          console.error('⚠️ Gagal auto scrape:', err.message);
          await bot.sendMessage(chatId, `❌ Gagal membuat scraper otomatis: ${escapeHtml(err.message)}`, { parse_mode: 'HTML', ...getMainMenuKeyboard(chatId) });
       }
-   });
+   }
+
+   bot.onText(/\/autoscrape(?:\s+(.+))?/, handleAutoScrape);
 
    bot.onText(/\/removefeed (.+)/, async (msg, match) => {
       const chatId = msg.chat.id;
